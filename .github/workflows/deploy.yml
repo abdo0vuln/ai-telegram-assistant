@@ -18,6 +18,8 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_KEY }}
           script: |
+            echo "🚀 Deploying to VPS..."
+            git config --global --add safe.directory /home/toufi/ai-telegram-assistant
             cd /home/toufi/ai-telegram-assistant
             git pull origin master
             sudo systemctl restart ai-telegram-bot
