@@ -19,6 +19,6 @@ jobs:
           key: ${{ secrets.VPS_KEY }}
           script: |
             cd /home/toufi/ai-telegram-assistant
-            git pull origin main
+            git pull origin master
             sudo systemctl restart ai-telegram-bot
             
