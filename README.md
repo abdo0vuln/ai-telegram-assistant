@@ -25,7 +25,7 @@ An intelligent AI-powered Telegram auto-responder bot that manages your account 
 
 1. **Clone the repository**
 ```bash
-git clone [<repository-url>](https://github.com/abdo0vuln/ai-telegram-assistant.git)
+git clone https://github.com/abdo0vuln/ai-telegram-assistant.git
 cd telegram-auto-responder
 ```
 
