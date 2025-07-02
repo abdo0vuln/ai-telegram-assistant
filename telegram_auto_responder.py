@@ -12,6 +12,7 @@ import time
 import os
 import tempfile
 import subprocess
+import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
@@ -41,6 +42,10 @@ class Config:
     
     # Speech-to-Text Configuration
     AZURE_WHISPER_DEPLOYMENT = os.getenv("AZURE_WHISPER_DEPLOYMENT", "whisper")
+    
+    # Text-to-Speech Configuration
+    AZURE_TTS_MODEL = os.getenv("AZURE_TTS_MODEL", "tts-1-hd")
+    AZURE_TTS_VOICE = os.getenv("AZURE_TTS_VOICE", "alloy")
     
     # Bot behavior
     RESPONSE_DELAY = int(os.getenv("RESPONSE_DELAY", "2"))
@@ -283,6 +288,7 @@ class AIResponder:
         self.config = config
         self.product_catalog = ProductCatalog(config.PRODUCTS_FILE)
         self.audio_converter = AudioConverter()
+        self.tts_converter = TTSConverter(config)
         self.setup_openai()
     
     def setup_openai(self):
@@ -465,6 +471,12 @@ class TelegramAutoResponder:
         else:
             logging.warning("⚠️  Speech-to-text limited - install ffmpeg for full support")
         
+        # Check if TTS is properly configured
+        if self.config.AZURE_TTS_MODEL and self.config.AZURE_TTS_VOICE:
+            logging.info("🔊 Text-to-speech enabled - will respond with voice to voice messages")
+        else:
+            logging.warning("⚠️  Text-to-speech not fully configured - check AZURE_TTS_MODEL and AZURE_TTS_VOICE")
+        
         self.client.add_event_handler(self.handle_new_message, events.NewMessage(incoming=True))
         await self.client.run_until_disconnected()
     
@@ -494,6 +506,32 @@ class TelegramAutoResponder:
             logging.error(f"❌ Error handling voice message: {e}")
             return "[Voice message - could not process]"
     
+    async def send_voice_response(self, event, response_text: str) -> bool:
+        """Send a voice response using TTS"""
+        try:
+            # Generate speech from text
+            audio_file_path = await self.ai.tts_converter.text_to_speech(response_text)
+            
+            if audio_file_path and os.path.exists(audio_file_path):
+                # Send the voice message
+                await event.respond(file=audio_file_path, voice_note=True)
+                
+                # Clean up the temporary audio file
+                try:
+                    os.remove(audio_file_path)
+                except:
+                    pass
+                
+                logging.info("🔊 Voice response sent successfully")
+                return True
+            else:
+                logging.error("❌ Failed to generate voice response")
+                return False
+                
+        except Exception as e:
+            logging.error(f"❌ Error sending voice response: {e}")
+            return False
+    
     async def handle_new_message(self, event):
         try:
             if not self.config.AUTO_RESPOND or event.sender_id == self.my_id:
@@ -506,8 +544,10 @@ class TelegramAutoResponder:
             user_name = self.get_display_name(sender)
             
             # Handle different message types
+            is_voice_message = False
             if event.message.voice:
                 user_message = await self.handle_voice_message(event)
+                is_voice_message = True
             elif event.message.message:
                 user_message = event.message.message
             else:
@@ -526,9 +566,21 @@ class TelegramAutoResponder:
             )
             
             await asyncio.sleep(self.config.RESPONSE_DELAY)
-            await event.respond(ai_response)
             
-            logging.info(f"✅ [{user_type.upper()}] Responded to {user_name}: {ai_response[:80]}...")
+            # If user sent a voice message, respond with voice
+            if is_voice_message:
+                # Try to send voice response first
+                voice_sent = await self.send_voice_response(event, ai_response)
+                if not voice_sent:
+                    # Fallback to text if voice fails
+                    await event.respond(ai_response)
+                    logging.info("⚠️  Voice response failed, sent text instead")
+                else:
+                    logging.info(f"✅ [{user_type.upper()}] Voice response sent to {user_name}: {ai_response[:80]}...")
+            else:
+                # Send text response for text messages
+                await event.respond(ai_response)
+                logging.info(f"✅ [{user_type.upper()}] Text response sent to {user_name}: {ai_response[:80]}...")
             
             # Update history
             updated_history = conversation_history[-self.config.MAX_HISTORY_LENGTH:]
