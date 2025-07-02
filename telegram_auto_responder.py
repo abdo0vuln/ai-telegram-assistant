@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 from telethon import TelegramClient, events
-from telethon.tl.types import User, Chat, Channel
+from telethon.tl.types import User, Chat, Channel, DocumentAttributeAudio
 from openai import AzureOpenAI
 
 # Load environment variables
@@ -111,6 +111,52 @@ class AudioConverter:
         except Exception as e:
             logging.error(f"❌ Audio conversion error: {e}")
             return False
+
+# =================== TEXT-TO-SPEECH CONVERTER ===================
+class TTSConverter:
+    def __init__(self, config):
+        self.config = config
+    
+    async def text_to_speech(self, text: str) -> Optional[str]:
+        """Convert text to speech using Azure TTS and return the file path"""
+        try:
+            # Build the TTS endpoint URL using the same base endpoint
+            tts_endpoint = f"{self.config.AZURE_ENDPOINT.rstrip('/')}/openai/deployments/tts/audio/speech?api-version={self.config.AZURE_API_VERSION}"
+            
+            # Headers for the request
+            headers = {
+                "api-key": self.config.AZURE_API_KEY,
+                "Content-Type": "application/json"
+            }
+            
+            # Payload / request body
+            payload = {
+                "model": self.config.AZURE_TTS_MODEL,
+                "input": text,
+                "voice": self.config.AZURE_TTS_VOICE
+            }
+            
+            logging.info(f"🔊 Converting text to speech: {text[:50]}...")
+            
+            # Send POST request to generate speech
+            response = requests.post(tts_endpoint, headers=headers, json=payload)
+            
+            if response.ok:
+                # Create temporary file for the audio
+                temp_audio_file = tempfile.mktemp(suffix='.mp3')
+                
+                with open(temp_audio_file, "wb") as f:
+                    f.write(response.content)
+                
+                logging.info("✅ Text-to-speech conversion successful")
+                return temp_audio_file
+            else:
+                logging.error(f"❌ TTS request failed: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logging.error(f"❌ TTS conversion error: {e}")
+            return None
 
 # =================== PRODUCT CATALOG MANAGER ===================
 class ProductCatalog:
@@ -513,8 +559,14 @@ class TelegramAutoResponder:
             audio_file_path = await self.ai.tts_converter.text_to_speech(response_text)
             
             if audio_file_path and os.path.exists(audio_file_path):
-                # Send the voice message
-                await event.respond(file=audio_file_path, voice_note=True)
+                # Send the voice message using proper Telethon method
+                await event.respond(
+                    file=audio_file_path,
+                    attributes=[DocumentAttributeAudio(
+                        duration=0,  # Duration will be auto-detected
+                        voice=True   # This makes it a voice message
+                    )]
+                )
                 
                 # Clean up the temporary audio file
                 try:

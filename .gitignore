@@ -77,3 +77,5 @@ Thumbs.db
 *.mp3
 *.mp4
 *.ogg
+products.json
+auto_responder_session.session
